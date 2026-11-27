@@ -1,0 +1,17 @@
+# Non-ROS assets kept outside src/ (linkerhand-urdf contains invalid package.xml files that break rosdep).
+# Import with: vcs import third_party < third_party.repos
+repositories:
+  linkerhand-urdf:
+    type: git
+    url: https://github.com/linker-bot/linkerhand-urdf.git
+    version: 49f26021b0a91ff5c33150df22970c07bb548672
+  # Vendor tools for the Anvil Robotics OpenArm 2.0 (udev CAN naming, Damiao motor test/zeroing).
+  anvil-openarm:
+    type: git
+    url: https://github.com/anvil-robotics/openarm.git
+    version: 859bf289c3b988324ee542de74f8e1300835e979
+  # Reference for the O6 CAN protocol ported into linker_o6_hardware.
+  linkerhand-ros2-sdk:
+    type: git
+    url: https://github.com/linker-bot/linkerhand-ros2-sdk.git
+    version: 0035f236c98b644aba6d9e972359df3fa1af4342

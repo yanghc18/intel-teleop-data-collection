@@ -1,0 +1,72 @@
+# Bimanual OpenARM 2.0 without end effectors; the O6 hands are attached in openarm_o6.urdf.xacro.
+# Derived from enactic/openarm_description presets/v2/default_bimanual.yaml (Apache-2.0).
+robot:
+  name: openarm_v20_o6
+  root_frame: world
+  components:
+  - body
+  - primary_arm
+  - secondary_arm
+body:
+  type: body
+  prefix: openarm_body_
+  enabled: true
+  product: v2.0
+  config: null
+  inertials: nominal
+  connection:
+    parent: world
+    origin: {x: 0.0, y: 0.0, z: 0.0, roll: 0.0, pitch: 0.0, yaw: 0.0}
+  reflect: {x: 1, y: 1, z: 1}
+  limit_override_joints: {}
+primary_arm:
+  type: arm
+  enabled: true
+  product: openarm_v2.0
+  config: null
+  inertials: nominal
+  prefix: openarm_left_
+  connection:
+    attach_to: body
+    parent_reference_point: left_arm_mount_point
+    parent: null
+    origin: null
+  reflect:
+    x: 1
+    y: -1
+    z: 1
+    include:
+      links: [base_link, link1, link2, link5, link6, link7]
+      joints: [joint1, joint2, joint3, joint5, joint6, joint7]
+      reference_points: [ee_mount_point]
+  limit_override_joints: {}
+secondary_arm:
+  type: arm
+  enabled: true
+  product: openarm_v2.0
+  config: null
+  inertials: nominal
+  prefix: openarm_right_
+  connection:
+    attach_to: body
+    parent_reference_point: right_arm_mount_point
+    parent: null
+    origin: null
+  reflect: {x: 1, y: 1, z: 1}
+  limit_override_joints: {}
+
+systems:
+  openarm_left_hardware_interface:
+    components:
+      primary_arm:
+        joints: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+        idx: [1, 2, 3, 4, 5, 6, 7]
+        control_gains: default
+        init_pos: default
+  openarm_right_hardware_interface:
+    components:
+      secondary_arm:
+        joints: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+        idx: [1, 2, 3, 4, 5, 6, 7]
+        control_gains: default
+        init_pos: default

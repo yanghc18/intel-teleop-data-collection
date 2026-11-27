@@ -1,4 +1,4 @@
-# Setup Steps (P0 / P1)
+# Setup Steps (P0 / P1 / P2 / P3)
 
 Reproducible record of what was actually executed on the PTL. Each step notes whether it is
 **host-only** (kernel / driver / device level) or **containerizable** (can go into a Dockerfile later).
@@ -208,6 +208,250 @@ All three containers have snapshot `p1-baseline`.
 
 ---
 
+## P2 Hardware Drivers (mock hardware)
+
+No arms/hands are available yet, so P2 runs `ros2_control` with `mock_components/GenericSystem`.
+The same URDF/launch switches to the real CAN drivers with `use_mock_hardware:=false`.
+
+Hardware:
+
+| Item | Detail |
+|---|---|
+| Arms | Anvil Robotics OpenArm 2.0 ([anvil-robotics/openarm](https://github.com/anvil-robotics/openarm)) = Enactic OpenArm v2.0 design; Damiao motors J1-J7 (DM8009 x2, DM4340 x2, DM4310 x3), same CAN IDs as Enactic (slave 0x01-0x07, master 0x11-0x17) |
+| Arm CAN | candleLight USB-CAN (gs_usb), **classic CAN 1 Mbps** (no CAN-FD) -> `can_fd=false` |
+| Hands | Linker Bot O6 x2, 6 actuated joints each (+5 mimic joints), CAN 1 Mbps ([linkerhand-ros2-sdk](https://github.com/linker-bot/linkerhand-ros2-sdk)) |
+| CAN names | `arm_r`, `arm_l`, `hand_r`, `hand_l` (udev rule by USB serial) |
+
+### P2.1 Workspace layout
+
+The ROS 2 workspace is `ros2_ws/` in this repo:
+
+| Path | Content |
+|---|---|
+| `ros2_ws/upstream.repos` | `openarm_description`, `openarm_ros2` (`openarm_hardware`, `openarm_bringup`, ...), `openarm_can` - pinned commits, imported into `src/` |
+| `ros2_ws/third_party.repos` | `linkerhand-urdf` (O6 URDF/meshes), `anvil-openarm` (vendor CAN/motor tools), `linkerhand-ros2-sdk` (O6 protocol reference) - imported into `third_party/` (outside `src/`: `linkerhand-urdf` has invalid catkin `package.xml` files that break `rosdep` and `colcon`) |
+| `src/description/openarm_o6_description` | Combined URDF: bimanual OpenArm v2.0 (own preset, no grippers) + O6 left/right at the arm `ee_mount_point` (link7 +20.5 mm x, pitch 90 deg; hand roll to be confirmed on hardware). Generates O6 URDFs at build time with `package://` mesh paths and prefixed material names |
+| `src/hardware/openarm_o6_bringup` | `controllers.yaml` + `bringup.launch.py` |
+| `src/hardware/linker_o6_hardware` | ros2_control `SystemInterface` for the O6 over SocketCAN (see P2.6) + `fake_o6.py` simulator |
+
+### P2.2 Build
+
+```bash
+cd ~/intel-teleop-data-collection
+./system_config/scripts/p2_setup_ws.sh 2>&1 | tee ~/p2_setup.log
+```
+
+The script:
+
+1. Installs `python3-colcon-common-extensions python3-rosdep python3-vcstool can-utils ros-jazzy-joint-state-publisher-gui ros-jazzy-rqt-joint-trajectory-controller ros-jazzy-rqt-controller-manager`; `rosdep init/update`.
+   (`ros-jazzy-moveit` was also installed on the PTL for P4.)
+2. Creates group `realtime` with `/etc/security/limits.d/90-realtime.conf` (`rtprio 99`, `memlock unlimited`) and adds the user (re-login needed) so `ros2_control_node` can use `SCHED_FIFO`. **Host-only.**
+3. `vcs import` both `.repos` files; `touch third_party/COLCON_IGNORE`.
+4. `rosdep install --from-paths src --ignore-src -y -r` (pulls `ros-jazzy-zed-description` among others).
+5. `colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release`.
+
+Dockerfile equivalent: `FROM ros:jazzy-ros-base`, same apt packages, `COPY ros2_ws`, `vcs import`, `rosdep install`, `colcon build`;
+run with `--network host --cap-add SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1` (CAN is a host netdev, so the control container needs host networking).
+
+### P2.3 CAN interfaces
+
+```bash
+sudo ./system_config/scripts/can_setup.sh --virtual   # vcan arm_r/arm_l/hand_r/hand_l (no hardware)
+sudo ./system_config/scripts/can_setup.sh             # real adapters: Anvil setup_can.sh asks to plug them in one by one,
+                                                      # writes /etc/udev/rules.d/90-can.rules + systemd-networkd 1 Mbps
+```
+
+**Host-only** (udev, kernel netdev). Plug order on first run: right arm, left arm, right hand, left hand.
+
+### P2.4 Run
+
+```bash
+source ros2_ws/install/setup.bash
+ros2 launch openarm_o6_bringup bringup.launch.py                       # mock (default), add rviz:=true on the desktop
+ros2 launch openarm_o6_bringup bringup.launch.py use_mock_hardware:=false   # real arms + real O6
+ros2 launch openarm_o6_bringup bringup.launch.py use_mock_hands:=false      # mock arms + real (or fake) O6
+ros2 launch openarm_o6_description display.launch.py                  # URDF preview with joint sliders
+```
+
+Controllers (`controller_manager` `update_rate: 1000`), `mode:=manual` (default):
+
+| Controller | Type | State at start | Use |
+|---|---|---|---|
+| `{left,right}_{arm,hand}_state_broadcaster` | JointStateBroadcaster (500 Hz), one per hardware component | active | `/joint_states` |
+| `{left,right}_arm_trajectory_controller` | JointTrajectoryController | active | P2 manual jog (rqt), MoveIt, replay |
+| `{left,right}_hand_trajectory_controller` | JointTrajectoryController | active | P2 manual jog of O6 |
+| `{left,right}_arm_controller` | JointGroupPositionController | inactive | streaming commands from `teleop_safety` (`mode:=teleop`) |
+| `{left,right}_gripper_controller` | JointGroupPositionController | inactive | O6 commands from `teleop_safety` (`mode:=teleop`) |
+
+Manual jog: `ros2 run rqt_joint_trajectory_controller rqt_joint_trajectory_controller` (desktop), or
+
+```bash
+ros2 action send_goal /left_arm_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory \
+  "{trajectory: {joint_names: [openarm_left_joint1, openarm_left_joint4], points: [{positions: [0.5, 1.0], time_from_start: {sec: 2}}]}}"
+```
+
+Teleop mode (P3): `ros2 launch openarm_o6_bringup bringup.launch.py mode:=teleop` activates the forward controllers instead and starts `safety_monitor_node`.
+
+### P2.5 Verification (mock, 2026-11-27)
+
+| Check | Result |
+|---|---|
+| `check_urdf` | OK, root `world`; 4 `ros2_control` systems |
+| Real-mode URDF params | arms: `openarm_hardware/OpenArmHW`, `can_interface=arm_r/arm_l`, `can_fd=False`, `hand=False`, kp/kd from upstream |
+| `ros2 control list_hardware_components` | 4 mock systems active |
+| `ros2 control list_controllers` | 5 active, 4 inactive as above (single broadcaster at that time; 8 active since P3) |
+| `/joint_states` | 500 Hz, 26 joints (14 arm + 12 hand) |
+| Trajectory goals (arm, hand) | SUCCEEDED, positions reached |
+| O6 mimic joints | `rh_index_dip` = 0.89 x `rh_index_mcp_pitch` via `robot_state_publisher` |
+| vcan | `cansend`/`candump` on `arm_r` OK |
+| `SCHED_FIFO` | `Successful set up FIFO RT scheduling policy with priority 50` |
+| 1 kHz loop (generic kernel, 2 min) | controller periodicity avg 1004 Hz, std 65 Hz, min 788 Hz (period max ~1.27 ms); CM cycle total ~70-190 us. Jitter is expected without PREEMPT_RT/isolcpus; re-measure after the RT kernel |
+
+Loop statistics are read from `/controller_manager/statistics/{names,values}` (`pal_statistics_msgs`, values topic is best-effort QoS).
+
+### P2.6 O6 driver `linker_o6_hardware`
+
+C++ ros2_control plugin `linker_o6_hardware/LinkerO6System`, protocol ported from the official Python SDK
+([linkerhand-ros2-sdk](https://github.com/linker-bot/linkerhand-ros2-sdk) `core/can/linker_hand_o6_can.py`, `utils/mapping.py`):
+
+| Item | Value |
+|---|---|
+| CAN ID (11-bit) | right `0x27`, left `0x28` (override with param `can_id`) |
+| Frame | `data[0]` = command, `data[1..6]` = one byte per joint |
+| Byte order | thumb_cmc_pitch, thumb_cmc_yaw, index, middle, ring, pinky |
+| `0x01` | 6 bytes = set target; no payload = request; reply `0x01` + 6 bytes = current position |
+| `0x02` / `0x05` | torque limit / speed (0-255), sent on activate |
+| Units | `rad = (255 - raw) / 255 * max`, `max` = URDF upper limit (0.58 / 1.36 / 1.6 rad, same as SDK); 255 = open |
+
+Behavior:
+
+- On activate: set speed/torque, read the current pose and use it as the initial command (no jump at start). Fails if no reply within ~500 ms.
+- `write()`: sends a position frame at most `command_rate_hz` and only when the target changed; polls the position at `state_rate_hz`.
+  Both default to 60 Hz like the SDK node; the real limit is to be measured on hardware.
+- `read()`: non-blocking; returns ERROR if no position report for `state_timeout_ms` (200). ros2_control then deactivates the component and its controllers.
+- Parameters are in [`linker_o6.ros2_control.xacro`](../ros2_ws/src/description/openarm_o6_description/urdf/linker_o6.ros2_control.xacro).
+
+Test without the hand (vcan + simulator):
+
+```bash
+sudo ./system_config/scripts/can_setup.sh --virtual
+ros2 run linker_o6_hardware fake_o6.py --channel hand_r --side right &
+ros2 run linker_o6_hardware fake_o6.py --channel hand_l --side left &
+ros2 launch openarm_o6_bringup bringup.launch.py use_mock_hands:=false
+colcon test --packages-select linker_o6_hardware   # protocol unit tests
+```
+
+| Check (fake O6 on vcan) | Result |
+|---|---|
+| Unit tests (mapping vs SDK, frame layout, parsing) | 4/4 pass |
+| Activation | both hands active; initial state = fake power-on pose (`thumb_cmc_pitch` 0.125, `pinky` 0.471 rad), no motion |
+| Trajectory goal | SUCCEEDED; `rh_index_mcp_pitch` 1.198 (target 1.2, 1 raw step = 0.006 rad) |
+| Bus traffic idle | 59 polls/s + 59 replies/s; no position frames while the target is unchanged |
+| Fake hand stopped | after 200 ms: `no position report`, component -> unconfigured, `right_hand_trajectory_controller` and `joint_state_broadcaster` deactivated |
+| Recovery | restart fake, `ros2 control set_hardware_component_state linker_o6_right_hardware_interface active`, `switch_controllers --activate ...` OK |
+
+Note: with the single `joint_state_broadcaster` used at that time, one hand failing also stopped `/joint_states` for the arms.
+Fixed in P3 with one broadcaster per hardware component.
+
+To do with the real hand: `candump hand_r` while the official SDK runs to confirm IDs/frames/reply behavior;
+verify direction and linearity of the mapping per finger; measure the max poll/command rate; check fault codes (`0x35`).
+
+### P2.7 Pending (needs hardware)
+
+- Run `can_setup.sh` with real adapters; Anvil motor test (`python -m openarm.damiao.monitor`, [motor-testing.md](https://github.com/anvil-robotics/openarm/blob/main/motor-testing.md)) and zero calibration.
+- Confirm the Anvil arms run with `openarm_hardware` at `can_fd=false` and without the J8 gripper motor (`hand=False`); confirm joint directions/limits (Anvil `openarm2` J6 range is wider than the URDF +-45 deg).
+  Read `openarm_hardware` activation code first (possible return-to-zero motion on start).
+- Arm CAN bandwidth: 7 motors x (command + reply) per cycle on classic CAN 1 Mbps is ~1.6-1.9 ms, so ~500 Hz per bus is the expected ceiling. Keep `update_rate: 1000` for now and decide after measuring.
+- O6: see P2.6 "To do with the real hand".
+- Confirm O6 mounting roll and flange offset, and the arm mounting on the actual stand (URDF uses the Enactic v2 body); RViz check on the desktop.
+- 1 kHz jitter with real CAN after the RT kernel.
+
+---
+
+## P3 Safety Layer
+
+Packages:
+
+| Package | Content |
+|---|---|
+| `src/teleop/teleop_msgs` | `TeleopAction` (deadman + joint targets for left/right arm and hand), `SafetyState` |
+| `src/teleop/teleop_safety` | `safety_monitor_node` (C++, host, 500 Hz), `config/safety.yaml`, `scripts/safety_test.py` (acceptance test), unit tests |
+
+Data flow (`mode:=teleop`):
+
+```
+/teleop_action (TeleopAction, from retargeting / VLA)  --+
+/emergency_stop (std_msgs/Bool, transient local)       --+--> safety_monitor_node --> /{left,right}_arm_controller/commands
+/joint_states                                          --+          500 Hz            /{left,right}_gripper_controller/commands
+                                                                                      /teleop/safety_state (50 Hz + on change)
+```
+
+### P3.1 Behavior
+
+| Function | Implementation |
+|---|---|
+| States | `ACTIVE` (forward limited targets), `HOLD` (freeze outputs), `ESTOP` (freeze, latched) |
+| Command timeout | no `/teleop_action` for `command_timeout` = 80 ms -> `HOLD` (80 ms + one 2 ms cycle < 100 ms requirement) |
+| Deadman | `TeleopAction.deadman == false` -> `HOLD` |
+| E-stop | `/emergency_stop` true -> `ESTOP`, latched; clear with `/emergency_stop` false **and** `ros2 service call /safety_monitor/reset std_srvs/srv/Trigger` (refused while still pressed) |
+| Soft joint limits | URDF limits minus `soft_limit_margin` (0.02 rad) |
+| Velocity limit | per joint `min(URDF velocity, group max_velocity)` (arms 1.0, hands 2.0 rad/s); also interpolates 100 Hz targets to 500 Hz |
+| Workspace | KDL FK of `world -> openarm_{left,right}_link7`, axis-aligned box per arm; a step is rejected if it moves the tip farther outside the box (motion back toward the box is allowed). **Box values in `safety.yaml` are placeholders** |
+| Engage check | after any `HOLD`/`ESTOP`, the first target must be within `max_start_error` (0.2 rad) of the current output, otherwise the group stays still |
+| Start-up | outputs start from the measured `/joint_states`, so activation never moves the robot |
+| Hardware fault | stale `/joint_states` (> 100 ms) for a group -> that group is frozen and reported in `faulted_groups`; other groups continue |
+
+Controller-level changes for P3: one `JointStateBroadcaster` per hardware component (a failing hand no longer stops the arm states);
+`bringup.launch.py mode:=teleop` activates the forward controllers and starts the safety monitor.
+
+The software e-stop is a controlled stop (hold position). It does not replace the hardware e-stop that cuts motor power.
+
+### P3.2 Run
+
+```bash
+ros2 launch openarm_o6_bringup bringup.launch.py mode:=teleop          # + use_mock_hardware:=false on the real robot
+ros2 topic echo /teleop/safety_state
+ros2 topic pub --once /emergency_stop std_msgs/msg/Bool "{data: true}"   # e-stop
+ros2 topic pub --once /emergency_stop std_msgs/msg/Bool "{data: false}"
+ros2 service call /safety_monitor/reset std_srvs/srv/Trigger
+```
+
+### P3.3 Test report (mock hardware, 2026-11-27)
+
+Acceptance test `ros2 run teleop_safety safety_test.py` (left arm, actions streamed at 100 Hz like retargeting;
+timing events are triggered while the output is still moving):
+
+| Test | Result | Detail |
+|---|---|---|
+| Command timeout -> hold | PASS | n=20, stop after last command: max 80.3 ms, mean 80.1 ms (requirement 100 ms), stopped short of target 20/20 |
+| E-stop | PASS | n=100, effective 100/100 (no output change while commands keep streaming), latency max 0.4 ms, mean 0.1 ms |
+| E-stop latch | PASS | reset refused while pressed; reset after release OK |
+| Deadman release -> hold | PASS | n=10, max 10.0 ms (one 100 Hz action period) |
+| Soft position limit | PASS | joint7 target 2.5 -> output 1.5508 rad (1.5708 - 0.02) |
+| Velocity limit | PASS | 2.5 rad step -> 0.980 rad/s (limit 1.0) |
+| Refuse far start target | PASS | 0.5 rad jump after hold: no motion, reason "target too far from current position" |
+
+Additional checks:
+
+| Check | Result |
+|---|---|
+| Unit tests (`colcon test --packages-select teleop_safety`) | pass |
+| Workspace box (left box z max set to 0.30 m, tip starts at z 0.261) | joint4 sweep stops with the tip at z 0.300, `limited_groups=[left_arm]` |
+| Fault isolation (fake O6, right hand killed) | arms and left hand `/joint_states` continue at ~500 Hz; `faulted_groups=[right_hand]`; right hand broadcaster/controllers deactivated by ros2_control |
+| Outputs | 500 Hz on each command topic |
+
+Latencies are measured at the safety monitor output (ROS topic). Robot-side stopping distance depends on the
+motor controllers and must be measured on the real arms (P3 on hardware).
+
+### P3.4 Pending (needs hardware)
+
+- Measure the workspace box on the real cell and update `safety.yaml`.
+- Hardware e-stop button: wiring (motor power cut) and a ROS input (e.g. USB/GPIO -> `/emergency_stop`).
+- Repeat the acceptance test on the real arms and measure stopping distance/time.
+- Decide whether a hand fault should hold the whole system (currently only the faulted group is held).
+
+---
+
 ## Pitfalls
 
 | Symptom | Cause / Fix |
@@ -216,8 +460,15 @@ All three containers have snapshot `p1-baseline`.
 | Installer TUI hangs over SSH | Use `-auto -profile base -distro jazzy` |
 | `pkill -f robotics-installer` kills your own SSH session | The pattern matches the SSH command line; use `pgrep -a` first and kill by PID |
 | Scripts fail with `$'\r': command not found` | Files edited on Windows; run `sed -i 's/\r$//'` on them |
+| `Permission denied` running `./system_config/scripts/*.sh` | Exec bit lost when files are copied/uploaded; `chmod +x system_config/scripts/*.sh` |
 | Long jobs die when SSH drops | Run with `nohup ... &` and log to a file |
 | Host `/data` shows `nobody:nogroup` in container and is read-only | Unprivileged container UID mapping; add `shift: "true"` to the disk device (idmapped mount) |
 | `lxc restart` hangs | Use `lxc restart <c> --force` |
 | Script piped via `bash -s` stops after an `lxc exec` line | `lxc exec` consumes stdin; add `< /dev/null` |
 | First DDS echo after starting a talker gets nothing | Discovery takes a few seconds; wait ~4 s before echo |
+| `colcon build` fails on `linkerhand_O30i_right.urdf` (catkin not found) | colcon scans `third_party/`; add `third_party/COLCON_IGNORE` |
+| `rosdep install` fails with "does not follow naming conventions" | Keep `linkerhand-urdf` outside `src/` |
+| URDF parse error: material not unique | Both O6 URDFs define `silver`/`BlackAccent`; prefixed with `lh_`/`rh_` at build time |
+| `Could not enable FIFO RT scheduling policy` | User not in `realtime` group / no rtprio limit; re-login after `p2_setup_ws.sh` and restart all ROS processes |
+| ROS env missing in `ssh host "..."` commands | `.bashrc` returns early for non-interactive shells; export `ROS_DOMAIN_ID`, `RMW_IMPLEMENTATION`, `CYCLONEDDS_URI` explicitly |
+| ros2_control loads the wrong plugins / "nodes share an exact name" | An orphaned `robot_state_publisher` from a killed launch still publishes the old `/robot_description`; kill leftover `robot_state_publisher`, `ros2_control_node`, `spawner` before relaunching |

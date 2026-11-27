@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="linker_o6_joint" params="name">
+    <joint name="${name}">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Only the 6 actuated joints; the *_dip / thumb_ip mimic joints are resolved by robot_state_publisher. -->
+  <xacro:macro name="linker_o6_ros2_control" params="name prefix hand_type use_mock_hardware can_interface">
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <xacro:if value="${use_mock_hardware}">
+          <plugin>mock_components/GenericSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${use_mock_hardware}">
+          <plugin>linker_o6_hardware/LinkerO6System</plugin>
+          <param name="can_interface">${can_interface}</param>
+          <param name="hand_type">${hand_type}</param>
+          <param name="command_rate_hz">60</param>
+          <param name="state_rate_hz">60</param>
+          <param name="state_timeout_ms">200</param>
+          <param name="speed">255</param>
+          <param name="torque">255</param>
+        </xacro:unless>
+      </hardware>
+      <xacro:linker_o6_joint name="${prefix}thumb_cmc_yaw"/>
+      <xacro:linker_o6_joint name="${prefix}thumb_cmc_pitch"/>
+      <xacro:linker_o6_joint name="${prefix}index_mcp_pitch"/>
+      <xacro:linker_o6_joint name="${prefix}middle_mcp_pitch"/>
+      <xacro:linker_o6_joint name="${prefix}ring_mcp_pitch"/>
+      <xacro:linker_o6_joint name="${prefix}pinky_mcp_pitch"/>
+    </ros2_control>
+  </xacro:macro>
+
+</robot>

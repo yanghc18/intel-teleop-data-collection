@@ -1,0 +1,15 @@
+# Upstream ROS 2 sources, pinned to the commits validated in P2.
+# Import with: vcs import src < upstream.repos
+repositories:
+  openarm_description:
+    type: git
+    url: https://github.com/enactic/openarm_description.git
+    version: 7793e64f4091f882900f1042e0d49b1fcaaace92
+  openarm_ros2:
+    type: git
+    url: https://github.com/enactic/openarm_ros2.git
+    version: 5fd1268ba4b50758c90affbc36f847e8178c141f
+  openarm_can:
+    type: git
+    url: https://github.com/enactic/openarm_can.git
+    version: 20d66f096d75373d70cee3ba9a8257f56d0bb6cb

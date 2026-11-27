@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="openarm_v20_o6">
+
+  <xacro:arg name="use_mock_hardware" default="true"/>
+  <xacro:arg name="use_mock_hands" default="true"/>
+  <!-- Anvil OpenArm 2.0 ships candleLight USB-CAN adapters: classic CAN 1 Mbps, names from udev. -->
+  <xacro:arg name="right_arm_can_interface" default="arm_r"/>
+  <xacro:arg name="left_arm_can_interface" default="arm_l"/>
+  <xacro:arg name="arm_can_fd" default="false"/>
+  <xacro:arg name="right_hand_can_interface" default="hand_r"/>
+  <xacro:arg name="left_hand_can_interface" default="hand_l"/>
+
+  <xacro:include filename="$(find openarm_description)/assets/common/robot.xacro"/>
+  <xacro:include filename="$(find openarm_o6_description)/urdf/linker_o6.ros2_control.xacro"/>
+
+  <xacro:property name="preset_file" value="$(find openarm_o6_description)/config/openarm_v2_bimanual_o6.yaml" lazy_eval="false"/>
+  <xacro:property name="preset" value="${xacro.load_yaml(preset_file)}" lazy_eval="false"/>
+  <xacro:property name="arm_can_fd" value="${str('$(arg arm_can_fd)').lower() in ['true', '1']}" lazy_eval="false"/>
+
+  <!-- Arms: same expansion as openarm_robot in openarm_description, but with our own preset file. -->
+  <xacro:openarm_assemble_robot out_name="component_descriptions"
+    component_api="${dict(describe='openarm_describe_auto_component', emit='openarm_emit_auto_component')}"
+    robot_preset="${preset}"
+    emit_grasp_frame="false"/>
+
+  <xacro:openarm_ros2_control robot_preset="${preset}"
+    component_descriptions="${component_descriptions}"
+    use_fake_hardware="$(arg use_mock_hardware)" fake_sensor_commands="false"
+    hardware_defaults="${dict(
+      openarm_left_hardware_interface=dict(plugin='openarm_hardware/OpenArmHW', params=dict(can_interface='can1', can_fd=True)),
+      openarm_right_hardware_interface=dict(plugin='openarm_hardware/OpenArmHW', params=dict(can_interface='can0', can_fd=True)))}"
+    can_parameters="${dict(
+      openarm_left_hardware_interface=dict(can_interface='$(arg left_arm_can_interface)', can_fd=arm_can_fd),
+      openarm_right_hardware_interface=dict(can_interface='$(arg right_arm_can_interface)', can_fd=arm_can_fd))}"
+    hardware_config="${None}"/>
+
+  <!-- Hands: Linker Bot O6 attached at the arm ee_mount_point (same pose as the pinch gripper preset).
+       TODO: confirm roll about the hand axis against the real flange adapter. -->
+  <xacro:include filename="$(find openarm_o6_description)/urdf/linker_o6_left.urdf"/>
+  <xacro:include filename="$(find openarm_o6_description)/urdf/linker_o6_right.urdf"/>
+
+  <joint name="openarm_left_hand_mount_joint" type="fixed">
+    <parent link="openarm_left_link7"/>
+    <child link="lh_hand_base_link"/>
+    <origin xyz="0.0205 0 0" rpy="0 ${pi/2} 0"/>
+  </joint>
+  <joint name="openarm_right_hand_mount_joint" type="fixed">
+    <parent link="openarm_right_link7"/>
+    <child link="rh_hand_base_link"/>
+    <origin xyz="0.0205 0 0" rpy="0 ${pi/2} 0"/>
+  </joint>
+
+  <xacro:linker_o6_ros2_control name="linker_o6_left_hardware_interface" prefix="lh_" hand_type="left"
+    use_mock_hardware="$(arg use_mock_hands)" can_interface="$(arg left_hand_can_interface)"/>
+  <xacro:linker_o6_ros2_control name="linker_o6_right_hardware_interface" prefix="rh_" hand_type="right"
+    use_mock_hardware="$(arg use_mock_hands)" can_interface="$(arg right_hand_can_interface)"/>
+
+</robot>
