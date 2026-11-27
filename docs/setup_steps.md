@@ -7,7 +7,7 @@ Reproducible record of what was actually executed on the PTL. Each step notes wh
 |---|---|
 | CPU | Intel Core Ultra X7 368H (Panther Lake) |
 | OS | Ubuntu 24.04.5 LTS |
-| Kernel | 7.0.0-31-generic (RT kernel deferred, see [RT kernel](#rt-kernel-deferred)) |
+| Kernel | 7.0.0-31-generic (RT kernel scripted, not installed yet, see [RT kernel](#rt-kernel-scripted-not-installed-yet)) |
 | Intel Robotics AI Suite | 2026.3, `robotics-installer` profile `base`, ROS 2 Jazzy |
 | Date | 2026-11-27 |
 
@@ -127,11 +127,21 @@ id                                                      # includes render
 
 Known harmless warnings: `ldconfig: /opt/intel/oneapi/redist/lib/*.so is not a symbolic link`.
 
-### RT kernel (deferred)
+### RT kernel (scripted, not installed yet)
 
-Not installed yet. P2-P4 are being developed with mock hardware and do not need it.
-When needed, follow the Intel guide "Enabling Real-time Linux kernel" (ECI `linux-intel-rt-*`),
-check Secure Boot state first, reboot, and verify `uname -a` shows `PREEMPT_RT`.
+P2-P4 are being developed with mock hardware and do not need it. The ECI repo added by P0 provides
+`linux-intel-rt-experimental` (6.17.11-intel-ese-experimental-lts-rt).
+
+```bash
+[ISOL_CPUS=2-3] bash system_config/scripts/p0b_setup_rt_kernel.sh   # then reboot
+```
+
+The script refuses to run with Secure Boot enabled, installs the kernel and `rt-tests`, and writes
+`/etc/default/grub.d/90-rt-kernel.cfg`: RT kernel as default, GRUB menu shown for 5 s, and CPU isolation
+(`isolcpus=nohz,domain,managed_irq`, `nohz_full`, `rcu_nocbs`) on P-cores 2-3 (P-cores are 0-3 on the 368H;
+`ISOL_CPUS=` disables isolation). The generic kernel stays installed; roll back by choosing it under
+"Advanced options for Ubuntu" or by deleting the drop-in and running `sudo update-grub`. After the reboot, check
+`uname -v` (PREEMPT_RT), `/sys/devices/system/cpu/isolated` and the OpenVINO devices (CPU, GPU, NPU).
 
 ---
 
@@ -448,7 +458,8 @@ motor controllers and must be measured on the real arms (P3 on hardware).
 ### P3.4 Pending (needs hardware)
 
 - Measure the workspace box on the real cell and update `safety.yaml`.
-- Hardware e-stop button: wiring (motor power cut) and a ROS input (e.g. USB/GPIO -> `/emergency_stop`).
+- Manual motor power switch within reach of the assistant (required); software e-stop via `/emergency_stop`.
+- Hardware e-stop button (optional, not purchased yet): wiring (motor power cut) and a ROS input (e.g. USB/GPIO -> `/emergency_stop`).
 - Repeat the acceptance test on the real arms and measure stopping distance/time.
 - Decide whether a hand fault should hold the whole system (currently only the faulted group is held).
 
@@ -460,8 +471,12 @@ Input devices are not available yet. The chain is built and tested with a simula
 bridges are written against the vendor SDKs and still have to be verified.
 
 Operator setup (decided): **Pico Motion Trackers strapped to the wrists / glove backs** give the wrist poses,
-Manus gloves give the fingers (hands stay free), the headset gives the head pose, and a **foot pedal** is the
-deadman / clutch (`/teleop/deadman`).
+Manus gloves give the fingers (hands stay free), the headset gives the head pose. The deadman / clutch (`/teleop/deadman`)
+is published by an assistant from the keyboard (below); a foot pedal is optional (not purchased yet).
+
+```bash
+ros2 topic pub -r 50 /teleop/deadman std_msgs/msg/Bool "{data: true}"   # running = pressed, Ctrl-C = released (0.2 s timeout)
+```
 
 ### P4.1 Packages
 
@@ -479,7 +494,7 @@ Topics:
 |---|---|---|
 | `/pico/head_pose`, `/pico/{left,right}_hand_pose` | `geometry_msgs/PoseStamped` (frame `pico_world`, ROS axes) | `pico_bridge` (wrist = motion tracker) |
 | `/manus/{left,right}_hand` | `teleop_msgs/HandSkeleton` (Manus ergonomics, rad) | `manus_bridge` (to do) |
-| `/teleop/deadman` | `std_msgs/Bool`, published continuously (>= 50 Hz) | foot pedal node (to do) |
+| `/teleop/deadman` | `std_msgs/Bool`, published continuously (>= 50 Hz) | keyboard `ros2 topic pub`; optional foot pedal node |
 | `/teleop_action` | `teleop_msgs/TeleopAction`, 100 Hz | `retarget_node` |
 
 ### P4.2 Retargeting
@@ -534,8 +549,8 @@ The in-PTL part uses ~20 ms of the 100 ms end-to-end budget (mostly the 100 Hz r
 
 | Device | Check |
 |---|---|
-| Pico 4 Ultra + 2 Motion Trackers | Install XRoboToolkit (headset app + PC Service on PTL, `pip install xrobotoolkit-sdk` in LXD `teleop`); confirm the motion tracker API names and serial-number mapping in `pico_bridge_node`; confirm `input_convention`; measure rate/jitter over Wi-Fi 6E |
-| Foot pedal | Pick a USB pedal; node publishing `/teleop/deadman` at >= 50 Hz; USB passthrough into LXD `teleop` |
+| Pico 4 Ultra + 2 Motion Trackers | Install XRoboToolkit (headset app + PC Service on PTL; the Python SDK `xrobotoolkit-sdk==1.1.0` is installed in LXD `teleop` by `p4_setup_teleop_lxd.sh`, its motion tracker API matches `pico_bridge_node`); confirm the serial-number mapping in `pico_bridge_node`; confirm `input_convention`; measure rate/jitter over Wi-Fi 6E |
+| Foot pedal (optional) | Pick a USB pedal; node publishing `/teleop/deadman` at >= 50 Hz; USB passthrough into LXD `teleop` |
 | Manus | `manus_bridge` with the Manus Linux SDK (ergonomics -> `HandSkeleton`, deg -> rad); dongle passthrough (P1 profile TODO); per-operator calibration |
 | Robot | `translation_scale`, ready pose, workspace box, IK tracking on the real arms |
 | End to end | latency < 100 ms (slow-motion video of operator and robot), pick-and-place |
@@ -557,7 +572,8 @@ Everything on the host is reproducible from this repo; LXD containers and `/data
 | LXD containers with their state | `lxd_backup.sh export` on the old PTL, `lxd_backup.sh import` on the new one (optional; otherwise P1 rebuilds them) |
 | `/data` (recordings) | `rsync -aP old-ptl:/data/ /data/` or via NAS |
 | CAN names | Same adapters: copy `/etc/udev/rules.d/90-can.rules` and `/etc/systemd/network/10-*.network`; new adapters: run `can_setup.sh` |
-| RT kernel, BIOS settings | Not scripted yet (added when the RT kernel is installed) |
+| RT kernel + CPU isolation | `p0b_setup_rt_kernel.sh`, then reboot (not part of `setup_ptl.sh`) |
+| BIOS settings | Not scripted |
 | Not migrated | SSH keys, passwordless sudo, hostname/IP |
 
 ### Steps
@@ -595,7 +611,7 @@ Validated on the current PTL with `--from p2` (P0/P1 already done there); a full
 | Long jobs die when SSH drops | Run with `nohup ... &` and log to a file |
 | Host `/data` shows `nobody:nogroup` in container and is read-only | Unprivileged container UID mapping; add `shift: "true"` to the disk device (idmapped mount) |
 | `lxc restart` hangs | Use `lxc restart <c> --force` |
-| Script piped via `bash -s` stops after an `lxc exec` line | `lxc exec` consumes stdin; add `< /dev/null` |
+| Script piped via `bash -s` stops after an `lxc exec` line, or `lxc snapshot` fails with a YAML unmarshal error | `lxc exec` / `lxc snapshot` / `lxc file push` read stdin; add `< /dev/null` |
 | First DDS echo after starting a talker gets nothing | Discovery takes a few seconds; wait ~4 s before echo |
 | `colcon build` fails on `linkerhand_O30i_right.urdf` (catkin not found) | colcon scans `third_party/`; add `third_party/COLCON_IGNORE` |
 | `rosdep install` fails with "does not follow naming conventions" | Keep `linkerhand-urdf` outside `src/` |
