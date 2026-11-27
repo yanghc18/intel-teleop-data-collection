@@ -11,7 +11,7 @@
 |---|---|
 | Compute | Intel PTL 368H, Ubuntu 24.04 LTS, PREEMPT_RT, iGPU/NPU, NVMe, I226 |
 | Software | ROS2 Jazzy, ros2_control, MoveIt2, OpenVINO, Intel Robotics AI Suite |
-| Arms | OpenARM 2.0 (USB-CAN / CAN-FD, one CAN bus per arm) |
+| Arms | OpenARM 2.0, Anvil Robotics edition ([anvil-robotics/openarm](https://github.com/anvil-robotics/openarm); Damiao motors, candleLight USB-CAN, classic CAN 1 Mbps, one CAN bus per arm) |
 | Dexterous hands | Linker Bot O6 (USB-CAN or vendor interface, left and right) |
 | XR | Pico 4 Ultra (Wi-Fi 6/6E streaming of head / controller / hand tracking) |
 | Hand mocap | Manus Gloves (Manus Linux SDK, dongle connected directly to PTL via USB) |
@@ -36,7 +36,7 @@ flowchart LR
   end
   subgraph PTL[Intel PTL 368H - Ubuntu 24.04 RT]
     subgraph HOST[Host - Realtime Domain]
-      CAN[SocketCAN can0..can3]
+      CAN[SocketCAN arm_r/arm_l/hand_r/hand_l]
       RC[ros2_control<br/>controller_manager 1kHz]
       HWA[openarm_hardware]
       HWL[linker_o6_hardware]
@@ -86,7 +86,7 @@ flowchart LR
 | L4 Motion | Retargeting, IK, MoveIt2 Servo, safety filter |
 | L3 Control | ros2_control, controller_manager, JTC / forward controllers |
 | L2 Hardware Abstraction | openarm_hardware, linker_o6_hardware (SystemInterface) |
-| L1 Driver / Bus | SocketCAN (gs_usb/candleLight CAN-FD), librealsense, Manus SDK |
+| L1 Driver / Bus | SocketCAN (gs_usb/candleLight, classic CAN 1 Mbps, udev names by serial), librealsense, Manus SDK |
 | L0 OS / Platform | Ubuntu 24.04 + PREEMPT_RT, CPU isolation, LXD, Intel GPU/NPU drivers |
 
 ### 1.3 Runtime / Control / Data Flow
@@ -122,7 +122,7 @@ flowchart LR
 | Component | Host | LXD | Docker | Reason |
 |---|:-:|:-:|:-:|---|
 | OpenARM SDK (openarm_can) | ✅ | | | Same process as hardware interface; needs RT and direct CAN access |
-| SocketCAN | ✅ | | | Kernel netdev; host manages bitrate / CAN-FD parameters |
+| SocketCAN | ✅ | | | Kernel netdev; host manages bitrate (systemd-networkd) and udev naming |
 | OpenARM Driver (openarm_hardware) | ✅ | | | ros2_control plugin, 1 kHz RT loop |
 | Linker Driver (linker_o6_hardware) | ✅ | | | Same as above; shares controller_manager |
 | ros2_control | ✅ | | | RT threads, CPU isolation |
@@ -274,11 +274,11 @@ Key settings:
 | `/tf` | `tf2_msgs/TFMessage` | robot_state_publisher, pico_bridge | all | 100 Hz | Reliable, Volatile, KeepLast 100 |
 | `/tf_static` | `tf2_msgs/TFMessage` | robot_state_publisher, camera | all | latched | Reliable, TransientLocal, KeepLast 1 |
 | `/cmd_vel` | `geometry_msgs/TwistStamped` | teleop (base) | base_controller | 50 Hz | Reliable, Volatile, KeepLast 1 |
-| `/left_arm_controller/commands` | `std_msgs/Float64MultiArray` | safety_monitor | forward_position_controller | 500 Hz | BestEffort, KeepLast 1 |
-| `/right_arm_controller/commands` | same | safety_monitor | forward_position_controller | 500 Hz | BestEffort, KeepLast 1 |
+| `/left_arm_controller/commands` | `std_msgs/Float64MultiArray` | safety_monitor | forward_position_controller | 500 Hz | Reliable, KeepLast 1 (controller subscription is Reliable) |
+| `/right_arm_controller/commands` | same | safety_monitor | forward_position_controller | 500 Hz | Reliable, KeepLast 1 |
 | `/arm_controller/joint_trajectory` | `trajectory_msgs/JointTrajectory` | MoveIt / replay | JTC | event | Reliable, KeepLast 1 |
-| `/left_gripper_controller/commands` | `std_msgs/Float64MultiArray` | hand_retarget | O6 forward controller | 100 Hz | BestEffort, KeepLast 1 |
-| `/right_gripper_controller/commands` | same | hand_retarget | O6 forward controller | 100 Hz | BestEffort, KeepLast 1 |
+| `/left_gripper_controller/commands` | `std_msgs/Float64MultiArray` | safety_monitor | O6 forward controller | 500 Hz | Reliable, KeepLast 1 |
+| `/right_gripper_controller/commands` | same | safety_monitor | O6 forward controller | 500 Hz | Reliable, KeepLast 1 |
 | `/manus/left_hand` | `teleop_msgs/HandSkeleton` | manus_bridge | hand_retarget, recorder | 90-120 Hz | BestEffort, KeepLast 5 |
 | `/manus/right_hand` | same | manus_bridge | hand_retarget, recorder | 90-120 Hz | BestEffort, KeepLast 5 |
 | `/pico/head_pose` | `geometry_msgs/PoseStamped` | pico_bridge | retarget, recorder | 72-90 Hz | BestEffort, KeepLast 5 |
@@ -327,7 +327,7 @@ flowchart LR
   DONGLE -- USB passthrough --> PTL
   SW -- I226 2.5GbE enp1s0 --> PTL[PTL 368H]
   SW --> NAS[(NAS / Training Server)]
-  PTL -- USB-CAN x4 --> CANBUS[can0/can1 OpenARM L/R<br/>can2/can3 O6 L/R]
+  PTL -- USB-CAN x4 --> CANBUS[arm_r/arm_l OpenARM R/L<br/>hand_r/hand_l O6 R/L]
   PTL -- USB3 --> D435[D435i head]
   PTL -- USB3 --> D405L[D405 left wrist]
   PTL -- USB3 --> D405R[D405 right wrist]
