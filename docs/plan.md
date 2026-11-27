@@ -9,7 +9,7 @@
 
 | Item | Description |
 |---|---|
-| Compute | Intel PTL 358H, Ubuntu 24.04 LTS, PREEMPT_RT, iGPU/NPU, NVMe, I226 |
+| Compute | Intel PTL 368H, Ubuntu 24.04 LTS, PREEMPT_RT, iGPU/NPU, NVMe, I226 |
 | Software | ROS2 Jazzy, ros2_control, MoveIt2, OpenVINO, Intel Robotics AI Suite |
 | Arms | OpenARM 2.0 (USB-CAN / CAN-FD, one CAN bus per arm) |
 | Dexterous hands | Linker Bot O6 (USB-CAN or vendor interface, left and right) |
@@ -19,7 +19,7 @@
 | Container solution | **Confirmed: LXD Hybrid (Host + LXD)** |
 
 Assumptions and decisions:
-- A single PTL 358H handles real-time control, perception, and recording; model training runs on an offline GPU server.
+- A single PTL 368H handles real-time control, perception, and recording; model training runs on an offline GPU server.
 - Manus uses **Option A**: the dongle is USB-passed-through to the LXD `teleop` container and `manus_bridge` reads it directly via the Manus Linux SDK. No extra Windows PC.
 
 ---
@@ -34,7 +34,7 @@ flowchart LR
     PICO[Pico 4 Ultra<br/>Head/Controller/Hand Pose]
     MANUS[Manus Gloves<br/>Finger Skeleton]
   end
-  subgraph PTL[Intel PTL 358H - Ubuntu 24.04 RT]
+  subgraph PTL[Intel PTL 368H - Ubuntu 24.04 RT]
     subgraph HOST[Host - Realtime Domain]
       CAN[SocketCAN can0..can3]
       RC[ros2_control<br/>controller_manager 1kHz]
@@ -325,7 +325,7 @@ flowchart LR
   AP -- 1GbE --> SW[Gigabit/2.5G Switch]
 
   DONGLE -- USB passthrough --> PTL
-  SW -- I226 2.5GbE enp1s0 --> PTL[PTL 358H]
+  SW -- I226 2.5GbE enp1s0 --> PTL[PTL 368H]
   SW --> NAS[(NAS / Training Server)]
   PTL -- USB-CAN x4 --> CANBUS[can0/can1 OpenARM L/R<br/>can2/can3 O6 L/R]
   PTL -- USB3 --> D435[D435i head]

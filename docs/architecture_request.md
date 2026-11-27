@@ -10,7 +10,7 @@ The goal is to build a Teleoperation, Data Collection, Imitation Learning, and V
 
 ## Hardware Platform
 
-- Intel PTL 358H
+- Intel PTL 368H
 - Ubuntu 24.04 LTS
 - PREEMPT_RT Kernel
 - Intel iGPU/NPU
@@ -102,7 +102,6 @@ Analyze:
 - RealSense
 - OpenVINO
 - VLA Runtime
-- Isaac Sim Bridge
 - rosbag2
 
 ## 4. ROS2 Package Design
@@ -178,6 +177,5 @@ Finally, directly provide:
 3. Final network topology
 4. Final container solution
 5. Final ROS2 package tree
-6. Risk list
-7. Implementation steps
-8. Rationale for recommendation
+6. Implementation steps
+7. Rationale for recommendation
