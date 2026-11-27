@@ -4,7 +4,8 @@ safety_monitor:
     command_timeout: 0.08     # [s] stop streaming -> hold; 80 ms + one cycle stays below the 100 ms requirement
     state_timeout: 0.1        # [s] stale /joint_states -> group faulted and held
     soft_limit_margin: 0.02   # [rad] inside the URDF limits
-    max_start_error: 0.2      # [rad] refuse to engage if the first target is farther than this
+    max_start_error: 0.2      # [rad] refuse to engage if the first target is farther than this (per-group override)
+    resync_threshold: 0.05    # [rad] while held, follow the measured position if it moved this far (controller switch, sag)
     groups: [left_arm, right_arm, left_hand, right_hand]
 
     left_arm:
@@ -34,11 +35,13 @@ safety_monitor:
     left_hand:
       command_topic: /left_gripper_controller/commands
       max_velocity: 2.0
+      max_start_error: 2.0    # fingers may follow the glove immediately (velocity-limited)
       joints: [lh_thumb_cmc_yaw, lh_thumb_cmc_pitch, lh_index_mcp_pitch,
                lh_middle_mcp_pitch, lh_ring_mcp_pitch, lh_pinky_mcp_pitch]
 
     right_hand:
       command_topic: /right_gripper_controller/commands
       max_velocity: 2.0
+      max_start_error: 2.0
       joints: [rh_thumb_cmc_yaw, rh_thumb_cmc_pitch, rh_index_mcp_pitch,
                rh_middle_mcp_pitch, rh_ring_mcp_pitch, rh_pinky_mcp_pitch]

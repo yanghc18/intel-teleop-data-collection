@@ -39,6 +39,7 @@ public:
     state_timeout_ = declare_parameter("state_timeout", 0.1);
     margin_ = declare_parameter("soft_limit_margin", 0.02);
     max_start_error_ = declare_parameter("max_start_error", 0.2);
+    resync_threshold_ = declare_parameter("resync_threshold", 0.05);
     const auto names = declare_parameter("groups", std::vector<std::string>{});
 
     for (const auto & n : names) {
@@ -46,6 +47,7 @@ public:
       g.name = n;
       g.joints = declare_parameter(n + ".joints", std::vector<std::string>{});
       g.max_velocity = declare_parameter(n + ".max_velocity", 0.5);
+      g.max_start_error = declare_parameter(n + ".max_start_error", max_start_error_);
       g.ws_enabled = declare_parameter(n + ".workspace.enabled", false);
       g.ws_base = declare_parameter(n + ".workspace.base_link", std::string{});
       g.ws_tip = declare_parameter(n + ".workspace.tip_link", std::string{});
@@ -102,6 +104,7 @@ private:
     std::string name;
     std::vector<std::string> joints;
     double max_velocity{0.5};
+    double max_start_error{0.2};
     std::vector<double> lower, upper, vmax, out;
     bool initialized{false};
     bool engaged{false};
@@ -251,8 +254,12 @@ private:
       const auto & target = target_of(action_, g.name);
       if (!group_active || target.size() != g.joints.size()) {
         g.engaged = false;
+        // The robot was moved by something else (e.g. trajectory controller): hold where it is now.
+        if (q && max_abs_diff(*q, g.out) > resync_threshold_) {
+          g.out = *q;
+        }
       } else {
-        if (!g.engaged && max_abs_diff(target, g.out) > max_start_error_) {
+        if (!g.engaged && max_abs_diff(target, g.out) > g.max_start_error) {
           msg.limited_groups.push_back(g.name);
           if (reason.empty()) {
             reason = g.name + ": target too far from current position";
@@ -308,7 +315,7 @@ private:
     SteadyClock::time_point stamp;
   };
 
-  double rate_hz_, command_timeout_, state_timeout_, margin_, max_start_error_;
+  double rate_hz_, command_timeout_, state_timeout_, margin_, max_start_error_, resync_threshold_;
   std::vector<Group> groups_;
   std::map<std::string, Measured> measured_;
   std::optional<TeleopAction> action_;
