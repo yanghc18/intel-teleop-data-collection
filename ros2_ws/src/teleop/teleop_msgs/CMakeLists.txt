@@ -8,6 +8,7 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/TeleopAction.msg
   msg/SafetyState.msg
+  msg/HandSkeleton.msg
   DEPENDENCIES std_msgs)
 
 ament_export_dependencies(rosidl_default_runtime)

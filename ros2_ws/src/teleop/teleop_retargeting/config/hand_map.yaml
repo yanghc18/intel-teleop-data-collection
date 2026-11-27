@@ -1,0 +1,11 @@
+# Manus ergonomics angles [rad] -> O6 joints [rad]. Order of o6_joints = gripper controller order.
+# in_range = [open hand, closed hand] input values; defaults are rough and are overwritten by
+# ~/calibrate_hands_open and ~/calibrate_hands_closed per operator.
+o6_joints: [thumb_cmc_yaw, thumb_cmc_pitch, index_mcp_pitch, middle_mcp_pitch, ring_mcp_pitch, pinky_mcp_pitch]
+map:
+  thumb_cmc_yaw:    {inputs: [ThumbMCPSpread],                   in_range: [0.0, 0.6], out_range: [0.0, 1.36]}
+  thumb_cmc_pitch:  {inputs: [ThumbMCPStretch, ThumbPIPStretch], in_range: [0.0, 0.8], out_range: [0.0, 0.58]}
+  index_mcp_pitch:  {inputs: [IndexMCPStretch, IndexPIPStretch], in_range: [0.0, 1.5], out_range: [0.0, 1.6]}
+  middle_mcp_pitch: {inputs: [MiddleMCPStretch, MiddlePIPStretch], in_range: [0.0, 1.5], out_range: [0.0, 1.6]}
+  ring_mcp_pitch:   {inputs: [RingMCPStretch, RingPIPStretch],   in_range: [0.0, 1.5], out_range: [0.0, 1.6]}
+  pinky_mcp_pitch:  {inputs: [PinkyMCPStretch, PinkyPIPStretch], in_range: [0.0, 1.5], out_range: [0.0, 1.6]}

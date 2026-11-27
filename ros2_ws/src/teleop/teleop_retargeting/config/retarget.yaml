@@ -1,0 +1,16 @@
+retarget_node:
+  ros__parameters:
+    rate_hz: 100.0
+    translation_scale: 1.0      # operator wrist motion -> robot hand motion
+    input_timeout: 0.1          # [s] stale tracker / glove data -> that group is not commanded
+    deadman_timeout: 0.2        # [s] /teleop/deadman must be refreshed (foot pedal publishes continuously)
+    robot_forward_yaw: 0.0      # [rad] robot base direction the operator faces after ~/calibrate
+    sides: [left, right]
+    left:
+      arm_joints: [openarm_left_joint1, openarm_left_joint2, openarm_left_joint3, openarm_left_joint4,
+                   openarm_left_joint5, openarm_left_joint6, openarm_left_joint7]
+      tip_frame: lh_hand_base_link
+    right:
+      arm_joints: [openarm_right_joint1, openarm_right_joint2, openarm_right_joint3, openarm_right_joint4,
+                   openarm_right_joint5, openarm_right_joint6, openarm_right_joint7]
+      tip_frame: rh_hand_base_link
