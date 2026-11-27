@@ -30,4 +30,5 @@ Host setup done. Remaining manual steps:
   1. Re-login (groups: render, lxd, realtime).
   2. CAN adapters: sudo ./system_config/scripts/can_setup.sh   (plug in arm_r, arm_l, hand_r, hand_l when asked)
   3. Optional: restore LXD containers / data from the old PTL (see docs/setup_steps.md, "Migrating to a new PTL").
+  4. Before real hardware: RT kernel, bash system_config/scripts/p0b_setup_rt_kernel.sh, then reboot.
 EOF
