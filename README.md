@@ -12,7 +12,7 @@ Teleoperation and multi-modal data collection platform built on Intel PTL + Inte
 | Software | ROS2 Jazzy, ros2_control, MoveIt2, OpenVINO, Intel Robotics AI Suite |
 | Arms | OpenARM 2.0 x2, Anvil Robotics edition ([anvil-robotics/openarm](https://github.com/anvil-robotics/openarm)), classic CAN 1 Mbps |
 | Hands | Linker Bot O6 x2 (CAN) |
-| XR | Pico 4 Ultra (head) + 2 Pico Motion Trackers (wrists); foot pedal as deadman / clutch |
+| XR | Pico 4 Ultra (head) + 2 Pico Motion Trackers (wrists); deadman / clutch from the keyboard (foot pedal optional) |
 | Hand mocap | Manus Gloves (Linux SDK) |
 | Cameras | RealSense D435i (head), RealSense D405 x2 (wrists) |
 | Containers | LXD Hybrid (Host + LXD) |
@@ -22,7 +22,7 @@ Teleoperation and multi-modal data collection platform built on Intel PTL + Inte
 | Path | Content |
 |---|---|
 | [docs/](docs) | Plan, setup steps and test reports |
-| [system_config/](system_config) | Cyclone DDS, LXD preseed/profiles, setup scripts (new-PTL provisioning, LXD, CAN, ROS 2 workspaces) |
+| [system_config/](system_config) | Cyclone DDS, LXD preseed/profiles, setup scripts (new-PTL provisioning, RT kernel, LXD, CAN, ROS 2 workspaces) |
 | [ros2_ws/](ros2_ws) | ROS 2 workspace: own packages in `src/`, upstream sources pinned in `upstream.repos` / `third_party.repos` |
 
 ROS 2 packages:
@@ -51,6 +51,7 @@ New PTL (Ubuntu 24.04):
 git clone https://github.com/yanghc18/intel-teleop-data-collection.git ~/intel-teleop-data-collection
 cd ~/intel-teleop-data-collection
 [PROXY=http://host:port] bash system_config/scripts/setup_ptl.sh   # P0 platform, P1 LXD, P2 workspace, P4 teleop container
+bash system_config/scripts/p0b_setup_rt_kernel.sh                  # before real hardware: PREEMPT_RT kernel, then reboot
 ```
 
 Run with mock hardware and a simulated operator:
@@ -66,15 +67,15 @@ sudo lxc exec teleop -- bash -c 'source /root/teleop_ws/install/setup.bash; ros2
 
 | Phase | Description | Status |
 |---|---|---|
-| P0 | Platform setup (Intel Robotics AI Suite Getting Started) | Done (RT kernel deferred) |
+| P0 | Platform setup (Intel Robotics AI Suite Getting Started) | Done; RT kernel scripted (`p0b_setup_rt_kernel.sh`), not installed yet |
 | P1 | LXD containers and DDS networking | Done (USB passthrough pending devices) |
 | P2 | Hardware drivers | Done with mock hardware and simulated O6 on vcan; real-hardware validation pending |
-| P3 | Safety layer | Done with mock hardware (acceptance test passed); hardware e-stop and real-arm tests pending |
-| P4 | Teleoperation (Pico + Manus) | Retargeting chain done with a simulated operator (in-PTL latency ~18 ms); device bridges pending hardware |
-| P5 | Perception and recording | Not started |
+| P3 | Safety layer | Done with mock hardware (acceptance test passed); real-arm tests pending (hardware e-stop button optional) |
+| P4 | Teleoperation (Pico + Manus) | Retargeting chain done with a simulated operator (in-PTL latency ~18 ms); XRoboToolkit SDK installed; device bridges pending hardware |
+| P5 | Perception and recording (+ MuJoCo digital twin after hardware validation) | Not started |
 | P6 | Dataset tools (MCAP to LeRobot) | Not started |
 | P7 | AI closed loop (optional) | Not started |
 | P8 | Documentation and delivery | Not started |
 
 Currently only the PTL system is available; external devices are pending. Software integration proceeds with mock hardware first.
-The PREEMPT_RT kernel will be installed later; P2-P4 with mock hardware do not require it.
+The PREEMPT_RT kernel will be installed before the real-hardware tests; P2-P4 with mock hardware do not require it.

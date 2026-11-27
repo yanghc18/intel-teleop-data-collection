@@ -13,7 +13,7 @@
 | Software | ROS2 Jazzy, ros2_control, MoveIt2, OpenVINO, Intel Robotics AI Suite |
 | Arms | OpenARM 2.0, Anvil Robotics edition ([anvil-robotics/openarm](https://github.com/anvil-robotics/openarm); Damiao motors, candleLight USB-CAN, classic CAN 1 Mbps, one CAN bus per arm) |
 | Dexterous hands | Linker Bot O6 (USB-CAN or vendor interface, left and right) |
-| XR | Pico 4 Ultra (head pose over Wi-Fi 6/6E) + 2 Pico Motion Trackers (strapped to the wrists / glove backs, wrist poses); foot pedal as deadman / clutch |
+| XR | Pico 4 Ultra (head pose over Wi-Fi 6/6E) + 2 Pico Motion Trackers (strapped to the wrists / glove backs, wrist poses); deadman / clutch published from the keyboard by an assistant (`/teleop/deadman`), foot pedal optional (not purchased yet) |
 | Hand mocap | Manus Gloves (Manus Linux SDK, dongle connected directly to PTL via USB) |
 | Cameras | Head: RealSense D435i x1; Wrists: RealSense D405 x2 (one per hand) |
 | Container solution | **Confirmed: LXD Hybrid (Host + LXD)** |
@@ -182,7 +182,7 @@ sequenceDiagram
 - A Pico OpenXR app (custom Unity/OpenXR app or an XRoboToolkit-like solution) captures head / controller / hand pose.
 - Transport: dedicated Wi-Fi 6E AP, UDP (low latency) with sequence numbers and timestamps; video feedback via WebRTC/H.264.
 - Frame conversion: XR world frame → operator calibration frame (button-triggered calibration) → robot base frame, with scaling factor.
-- Clutch: follow only while the foot pedal (`/teleop/deadman`) is pressed; freeze on release. Every press re-anchors operator and robot poses (relative mapping, so the tracker mounting offset needs no calibration).
+- Clutch: follow only while `/teleop/deadman` is continuously true (keyboard publisher run by an assistant, or an optional foot pedal); freeze when it is false or stops for 0.2 s. Every re-enable re-anchors operator and robot poses (relative mapping, so the tracker mounting offset needs no calibration).
 
 ### 5.2 Manus Tracking
 - Manus SDK provides a 25-point hand skeleton and finger joint angles.
@@ -191,7 +191,7 @@ sequenceDiagram
 ### 5.3 Robot Command Generation
 - **Arm**: wrist pose → low-pass / One-Euro filter → numerical IK (TRAC-IK / KDL / Pinocchio) → joint targets → `forward_position_controller` or JTC.
 - **Hand**: Manus joint angles → linear / optimization-based retargeting (dex-retargeting) → O6 6-DoF.
-- **Safety**: joint limits, velocity/acceleration limits, workspace box, 100 ms communication timeout stop, physical E-stop.
+- **Safety**: joint limits, velocity/acceleration limits, workspace box, 100 ms communication timeout stop, software E-stop + manual motor power switch (hardware E-stop button optional, not purchased yet).
 
 ### 5.4 Frequency Configuration
 
@@ -285,7 +285,7 @@ Key settings:
 | `/pico/left_hand_pose` | `geometry_msgs/PoseStamped` | pico_bridge | arm_retarget, recorder | 72-90 Hz | BestEffort, KeepLast 5 |
 | `/pico/right_hand_pose` | same | pico_bridge | arm_retarget, recorder | 72-90 Hz | BestEffort, KeepLast 5 |
 | `/pico/buttons` | `sensor_msgs/Joy` | pico_bridge | safety, episode_manager | 72 Hz | Reliable, KeepLast 10 |
-| `/teleop/deadman` | `std_msgs/Bool` | foot pedal node | retarget | >= 50 Hz | Reliable, KeepLast 10 |
+| `/teleop/deadman` | `std_msgs/Bool` | keyboard (`ros2 topic pub -r 50`); optional foot pedal node | retarget | >= 50 Hz | Reliable, KeepLast 10 |
 | `/teleop_action` | `teleop_msgs/TeleopAction` | retargeting / vla_policy | safety_monitor, recorder | 100 Hz | Reliable, KeepLast 1 |
 | `/teleop/safety_state` | `teleop_msgs/SafetyState` | safety_monitor | UI, recorder | 50 Hz | Reliable, KeepLast 1 |
 | `/left_ee_pose`, `/right_ee_pose` | `geometry_msgs/PoseStamped` | fk_publisher | recorder, VLA | 100 Hz | BestEffort, KeepLast 1 |
@@ -299,7 +299,7 @@ Key settings:
 | `/dynamic_joint_states` | `control_msgs/DynamicJointState` | joint_state_broadcaster | recorder (current/temperature) | 100 Hz | Reliable, KeepLast 10 |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | drivers | UI, recorder | 1 Hz | Reliable, KeepLast 10 |
 | `/episode/status` | `teleop_msgs/EpisodeStatus` | episode_manager | recorder, UI | event | Reliable, TransientLocal, KeepLast 1 |
-| `/emergency_stop` | `std_msgs/Bool` | UI / Pico / physical button | safety_monitor | event | Reliable, TransientLocal, KeepLast 1 |
+| `/emergency_stop` | `std_msgs/Bool` | keyboard / UI / Pico / physical button (optional) | safety_monitor | event | Reliable, TransientLocal, KeepLast 1 |
 
 > Note: `/arm_controller` and `/gripper_controller` in the original request are controller namespaces; the actual topics are expanded above by controller type.
 
@@ -390,15 +390,24 @@ ros2_ws/src/
 | **P2 Hardware drivers** | SocketCAN setup, `openarm_hardware`, `linker_o6_hardware`, URDF, ros2_control config | Hardware packages, bringup launch | Dual arm stable at 1 kHz, O6 open/close, correct RViz display; manual joint-space control via rqt / keyboard (not Pico/Manus teleop) |
 | **P3 Safety layer** | `teleop_safety`, E-stop, soft limits, timeout stop | Safety package, test report | Stop within 100 ms of disconnect; E-stop 100% effective |
 | **P4 Teleoperation** | Pico app + `pico_bridge`, `manus_bridge`, retargeting/IK, calibration flow | Teleop packages, operator manual | End-to-end latency < 100 ms; pick-and-place achievable |
-| **P5 Perception & recording** | D435i (head) + D405 x2 (wrist) bringup and calibration (head extrinsics, wrist hand-eye), `episode_manager`, `data_recorder`, MCAP recording | Recording system, calibration results | All three cameras 30 Hz with < 1% frame drop; no control loop overrun during recording |
+| **P5 Perception & recording** | D435i (head) + D405 x2 (wrist) bringup and calibration (head extrinsics, wrist hand-eye), `episode_manager`, `data_recorder`, MCAP recording; **MuJoCo digital twin** (only after P2-P4 hardware validation, see below) | Recording system, calibration results, MuJoCo model and launch | All three cameras 30 Hz with < 1% frame drop; no control loop overrun during recording; in MuJoCo sim mode the same teleop stack completes pick-and-place, and mirror mode matches the real robot pose |
 | **P6 Dataset** | `dataset_tools`: MCAP → LeRobot, quality checks, upload to NAS | Conversion tools, dataset spec | LeRobot loads dataset and trains ACT baseline |
 | **P7 AI closed loop (optional)** | Reference Intel Robotics AI Suite OpenVINO-optimized ACT / Diffusion Policy / Pi0.5 / RDT pipelines, deploy to `vla_runtime` | Inference node | Model inference ≥ 10 Hz on iGPU/NPU; demo task succeeds |
 | **P8 Documentation & delivery** | ADD, SDS, Deployment Guide, operating SOP | Documents | A new engineer can deploy following the documents |
+
+**P5 MuJoCo digital twin (prerequisite: P2-P4 validated on hardware; the model is tuned with real-robot parameters)**
+
+| Mode | Approach | Use |
+|---|---|---|
+| A. Mirror | MuJoCo subscribes to the real `/joint_states` and sets the model pose directly (no physics) | 3D monitoring of the real robot |
+| B. Simulation | The ros2_control hardware interface is replaced by MuJoCo (e.g. `mujoco_ros2_control/MujocoSystemInterface`); bringup switches mock / MuJoCo / real via a launch argument; safety layer, teleop and recording are unchanged | Practice and validate pick-and-place with the same teleop stack; generate simulated data for P6/P7 |
+
+To confirm: `mujoco_ros2_control` availability on Jazzy; combining the OpenARM (Enactic `openarm_description` already has a MuJoCo hardware_config example) and O6 (Linker `linkerhand-sim`) MuJoCo models; where MuJoCo runs (host or LXD, needs GPU rendering).
 
 ### 8.7 Rationale
 1. **Real-time first**: control chain (ros2_control + CAN) stays on the host RT kernel, avoiding container jitter and device access issues.
 2. **Isolation and maintainability**: teleop, AI, and data recording live in separate LXDs that can be upgraded, snapshotted, and rolled back independently; AI model updates do not affect control.
 3. **Intel platform optimization**: OpenVINO runs perception and VLA on iGPU/NPU, keeping CPU P-cores for RT control.
 4. **Data usability**: MCAP preserves full raw data; LeRobot is the official training format, compatible with mainstream IL/VLA models and exportable to OpenX.
-5. **Safety**: dedicated safety layer + hardware E-stop + communication timeout for human-in-the-loop teleoperation.
+5. **Safety**: dedicated safety layer + E-stop (software stop and motor power cut) + communication timeout for human-in-the-loop teleoperation.
 6. **Extensibility**: unified `teleop_msgs/TeleopAction` interface allows seamless switching between human teleoperation and VLA policy on the same control chain.
