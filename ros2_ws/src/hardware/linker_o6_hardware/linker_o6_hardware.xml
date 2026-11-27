@@ -1,0 +1,7 @@
+<library path="linker_o6_hardware">
+  <class name="linker_o6_hardware/LinkerO6System"
+         type="linker_o6_hardware::LinkerO6System"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>Linker Bot O6 hand (6 actuated joints) over SocketCAN.</description>
+  </class>
+</library>

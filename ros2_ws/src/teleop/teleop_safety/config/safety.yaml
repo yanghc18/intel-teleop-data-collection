@@ -1,0 +1,44 @@
+safety_monitor:
+  ros__parameters:
+    rate_hz: 500.0
+    command_timeout: 0.08     # [s] stop streaming -> hold; 80 ms + one cycle stays below the 100 ms requirement
+    state_timeout: 0.1        # [s] stale /joint_states -> group faulted and held
+    soft_limit_margin: 0.02   # [rad] inside the URDF limits
+    max_start_error: 0.2      # [rad] refuse to engage if the first target is farther than this
+    groups: [left_arm, right_arm, left_hand, right_hand]
+
+    left_arm:
+      command_topic: /left_arm_controller/commands
+      max_velocity: 1.0       # [rad/s], also capped by the URDF velocity
+      joints: [openarm_left_joint1, openarm_left_joint2, openarm_left_joint3, openarm_left_joint4,
+               openarm_left_joint5, openarm_left_joint6, openarm_left_joint7]
+      workspace:
+        enabled: true
+        base_link: world
+        tip_link: openarm_left_link7
+        min: [-0.20, -0.80, -0.10]   # [m] placeholder box, measure on the real cell
+        max: [0.80, 0.80, 1.00]
+
+    right_arm:
+      command_topic: /right_arm_controller/commands
+      max_velocity: 1.0
+      joints: [openarm_right_joint1, openarm_right_joint2, openarm_right_joint3, openarm_right_joint4,
+               openarm_right_joint5, openarm_right_joint6, openarm_right_joint7]
+      workspace:
+        enabled: true
+        base_link: world
+        tip_link: openarm_right_link7
+        min: [-0.20, -0.80, -0.10]
+        max: [0.80, 0.80, 1.00]
+
+    left_hand:
+      command_topic: /left_gripper_controller/commands
+      max_velocity: 2.0
+      joints: [lh_thumb_cmc_yaw, lh_thumb_cmc_pitch, lh_index_mcp_pitch,
+               lh_middle_mcp_pitch, lh_ring_mcp_pitch, lh_pinky_mcp_pitch]
+
+    right_hand:
+      command_topic: /right_gripper_controller/commands
+      max_velocity: 2.0
+      joints: [rh_thumb_cmc_yaw, rh_thumb_cmc_pitch, rh_index_mcp_pitch,
+               rh_middle_mcp_pitch, rh_ring_mcp_pitch, rh_pinky_mcp_pitch]
