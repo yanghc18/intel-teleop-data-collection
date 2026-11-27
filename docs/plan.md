@@ -13,7 +13,7 @@
 | Software | ROS2 Jazzy, ros2_control, MoveIt2, OpenVINO, Intel Robotics AI Suite |
 | Arms | OpenARM 2.0, Anvil Robotics edition ([anvil-robotics/openarm](https://github.com/anvil-robotics/openarm); Damiao motors, candleLight USB-CAN, classic CAN 1 Mbps, one CAN bus per arm) |
 | Dexterous hands | Linker Bot O6 (USB-CAN or vendor interface, left and right) |
-| XR | Pico 4 Ultra (Wi-Fi 6/6E streaming of head / controller / hand tracking) |
+| XR | Pico 4 Ultra (head pose over Wi-Fi 6/6E) + 2 Pico Motion Trackers (strapped to the wrists / glove backs, wrist poses); foot pedal as deadman / clutch |
 | Hand mocap | Manus Gloves (Manus Linux SDK, dongle connected directly to PTL via USB) |
 | Cameras | Head: RealSense D435i x1; Wrists: RealSense D405 x2 (one per hand) |
 | Container solution | **Confirmed: LXD Hybrid (Host + LXD)** |
@@ -182,11 +182,11 @@ sequenceDiagram
 - A Pico OpenXR app (custom Unity/OpenXR app or an XRoboToolkit-like solution) captures head / controller / hand pose.
 - Transport: dedicated Wi-Fi 6E AP, UDP (low latency) with sequence numbers and timestamps; video feedback via WebRTC/H.264.
 - Frame conversion: XR world frame → operator calibration frame (button-triggered calibration) → robot base frame, with scaling factor.
-- Clutch: follow only while the trigger is held; freeze on release (prevents drift).
+- Clutch: follow only while the foot pedal (`/teleop/deadman`) is pressed; freeze on release. Every press re-anchors operator and robot poses (relative mapping, so the tracker mounting offset needs no calibration).
 
 ### 5.2 Manus Tracking
 - Manus SDK provides a 25-point hand skeleton and finger joint angles.
-- Wrist pose comes from Pico (Manus has no absolute positioning); Manus provides fingers only.
+- Wrist pose comes from the Pico Motion Trackers on the wrists (Manus has no absolute positioning; the hands do not hold controllers so the finger data stays valid); Manus provides fingers only.
 
 ### 5.3 Robot Command Generation
 - **Arm**: wrist pose → low-pass / One-Euro filter → numerical IK (TRAC-IK / KDL / Pinocchio) → joint targets → `forward_position_controller` or JTC.
@@ -285,6 +285,7 @@ Key settings:
 | `/pico/left_hand_pose` | `geometry_msgs/PoseStamped` | pico_bridge | arm_retarget, recorder | 72-90 Hz | BestEffort, KeepLast 5 |
 | `/pico/right_hand_pose` | same | pico_bridge | arm_retarget, recorder | 72-90 Hz | BestEffort, KeepLast 5 |
 | `/pico/buttons` | `sensor_msgs/Joy` | pico_bridge | safety, episode_manager | 72 Hz | Reliable, KeepLast 10 |
+| `/teleop/deadman` | `std_msgs/Bool` | foot pedal node | retarget | >= 50 Hz | Reliable, KeepLast 10 |
 | `/teleop_action` | `teleop_msgs/TeleopAction` | retargeting / vla_policy | safety_monitor, recorder | 100 Hz | Reliable, KeepLast 1 |
 | `/teleop/safety_state` | `teleop_msgs/SafetyState` | safety_monitor | UI, recorder | 50 Hz | Reliable, KeepLast 1 |
 | `/left_ee_pose`, `/right_ee_pose` | `geometry_msgs/PoseStamped` | fk_publisher | recorder, VLA | 100 Hz | BestEffort, KeepLast 1 |
