@@ -1,0 +1,6 @@
+description: Teleop container (pico_bridge, manus_bridge, retargeting, MoveIt2)
+config:
+  limits.memory: 8GiB
+devices: {}
+# TODO(P4): add Manus dongle USB passthrough once vendorid/productid is known, e.g.
+#   manus-dongle: {type: usb, vendorid: "xxxx", productid: "xxxx"}

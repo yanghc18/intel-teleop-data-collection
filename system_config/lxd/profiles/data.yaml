@@ -1,0 +1,9 @@
+description: Data container (rosbag2 recorder, episode_manager, dataset_tools)
+config:
+  limits.memory: 8GiB
+devices:
+  dataset:
+    type: disk
+    source: /data
+    path: /data
+    shift: "true"

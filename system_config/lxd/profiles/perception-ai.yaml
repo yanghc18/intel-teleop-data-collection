@@ -1,0 +1,25 @@
+description: Perception/AI container (RealSense, OpenVINO, VLA runtime)
+config:
+  security.nesting: "true"
+  limits.memory: 24GiB
+devices:
+  igpu:
+    type: gpu
+    gputype: physical
+    mode: "0666"
+  npu:
+    type: unix-char
+    source: /dev/accel/accel0
+    path: /dev/accel/accel0
+    mode: "0666"
+  # RealSense USB passthrough (hot-plug; devices may be absent)
+  rs-d435i:
+    type: usb
+    vendorid: "8086"
+    productid: "0b3a"
+    mode: "0666"
+  rs-d405:
+    type: usb
+    vendorid: "8086"
+    productid: "0b5b"
+    mode: "0666"
