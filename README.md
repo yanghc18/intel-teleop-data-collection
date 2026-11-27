@@ -12,7 +12,7 @@ Teleoperation and multi-modal data collection platform built on Intel PTL + Inte
 | Software | ROS2 Jazzy, ros2_control, MoveIt2, OpenVINO, Intel Robotics AI Suite |
 | Arms | OpenARM 2.0 x2, Anvil Robotics edition ([anvil-robotics/openarm](https://github.com/anvil-robotics/openarm)), classic CAN 1 Mbps |
 | Hands | Linker Bot O6 x2 (CAN) |
-| XR | Pico 4 Ultra |
+| XR | Pico 4 Ultra (head) + 2 Pico Motion Trackers (wrists); foot pedal as deadman / clutch |
 | Hand mocap | Manus Gloves (Linux SDK) |
 | Cameras | RealSense D435i (head), RealSense D405 x2 (wrists) |
 | Containers | LXD Hybrid (Host + LXD) |
@@ -22,32 +22,44 @@ Teleoperation and multi-modal data collection platform built on Intel PTL + Inte
 | Path | Content |
 |---|---|
 | [docs/](docs) | Plan, setup steps and test reports |
-| [system_config/](system_config) | Cyclone DDS, LXD preseed/profiles, setup scripts (LXD, CAN, ROS 2 workspace) |
+| [system_config/](system_config) | Cyclone DDS, LXD preseed/profiles, setup scripts (new-PTL provisioning, LXD, CAN, ROS 2 workspaces) |
 | [ros2_ws/](ros2_ws) | ROS 2 workspace: own packages in `src/`, upstream sources pinned in `upstream.repos` / `third_party.repos` |
 
 ROS 2 packages:
 
-| Package | Purpose |
-|---|---|
-| `openarm_o6_description` | URDF: bimanual OpenARM 2.0 + Linker O6 hands |
-| `openarm_o6_bringup` | ros2_control bringup (mock or real hardware; `mode:=manual` / `mode:=teleop`) |
-| `linker_o6_hardware` | ros2_control plugin for the O6 over SocketCAN, plus a CAN simulator |
-| `teleop_msgs` | `TeleopAction`, `SafetyState` |
-| `teleop_safety` | 500 Hz safety monitor: e-stop, deadman, command timeout, joint/velocity/workspace limits |
+| Package | Runs in | Purpose |
+|---|---|---|
+| `openarm_o6_description` | host | URDF: bimanual OpenARM 2.0 + Linker O6 hands |
+| `openarm_o6_bringup` | host | ros2_control bringup (mock or real hardware; `mode:=manual` / `mode:=teleop`), `go_ready.py` |
+| `linker_o6_hardware` | host | ros2_control plugin for the O6 over SocketCAN, plus a CAN simulator |
+| `teleop_safety` | host | 500 Hz safety monitor: e-stop, deadman, command timeout, joint/velocity/workspace limits |
+| `teleop_msgs` | host + LXD | `TeleopAction`, `SafetyState`, `HandSkeleton` |
+| `teleop_retargeting` | LXD `teleop` | Wrist poses -> arm IK (clutch-relative), glove -> O6 fingers; simulated operator and latency probe |
+| `pico_bridge` | LXD `teleop` | Pico 4 Ultra / Motion Trackers via XRoboToolkit -> ROS poses |
 
 ## Documents
 
 - [docs/plan.md](docs/plan.md) - Implementation plan (architecture, deployment, ROS2 packages, topics, phases)
-- [docs/setup_steps.md](docs/setup_steps.md) - Executed setup steps and test reports for P0-P3 (with Dockerfile mapping)
+- [docs/setup_steps.md](docs/setup_steps.md) - Executed setup steps and test reports for P0-P4, new-PTL migration (with Dockerfile mapping)
 - [docs/architecture_request.md](docs/architecture_request.md) - Original architecture design request
 
-## Quick Start (mock hardware)
+## Quick Start
+
+New PTL (Ubuntu 24.04):
 
 ```bash
-./system_config/scripts/p2_setup_ws.sh                        # build the workspace
+git clone https://github.com/yanghc18/intel-teleop-data-collection.git ~/intel-teleop-data-collection
+cd ~/intel-teleop-data-collection
+[PROXY=http://host:port] bash system_config/scripts/setup_ptl.sh   # P0 platform, P1 LXD, P2 workspace, P4 teleop container
+```
+
+Run with mock hardware and a simulated operator:
+
+```bash
 source ros2_ws/install/setup.bash
-ros2 launch openarm_o6_bringup bringup.launch.py              # manual jogging
-ros2 launch openarm_o6_bringup bringup.launch.py mode:=teleop # safety monitor + streaming controllers
+ros2 launch openarm_o6_bringup bringup.launch.py mode:=teleop   # host: ros2_control + safety monitor
+ros2 run openarm_o6_bringup go_ready.py                          # host: ready pose
+sudo lxc exec teleop -- bash -c 'source /root/teleop_ws/install/setup.bash; ros2 launch teleop_retargeting teleop.launch.py fake_operator:=true'
 ```
 
 ## Status
@@ -58,7 +70,7 @@ ros2 launch openarm_o6_bringup bringup.launch.py mode:=teleop # safety monitor +
 | P1 | LXD containers and DDS networking | Done (USB passthrough pending devices) |
 | P2 | Hardware drivers | Done with mock hardware and simulated O6 on vcan; real-hardware validation pending |
 | P3 | Safety layer | Done with mock hardware (acceptance test passed); hardware e-stop and real-arm tests pending |
-| P4 | Teleoperation (Pico + Manus) | Not started |
+| P4 | Teleoperation (Pico + Manus) | Retargeting chain done with a simulated operator (in-PTL latency ~18 ms); device bridges pending hardware |
 | P5 | Perception and recording | Not started |
 | P6 | Dataset tools (MCAP to LeRobot) | Not started |
 | P7 | AI closed loop (optional) | Not started |
